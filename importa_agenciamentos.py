@@ -82,7 +82,7 @@ try:
                 'showSuspended': '1',
                 'showInternal': '1',
                 'pesquisa': json.dumps({
-                    "fields": ["Dormitorios", "Status", "DataLiberacao", "DataCadastro", "Codigo", "Categoria", "Bairro", "Cidade", "ValorVenda"],
+                    "fields": ["Dormitorios", "Status", "DataLiberacao", "DataCadastro", "Codigo", "Categoria", "Bairro", "Cidade", "ValorVenda", "TemPlaca"],
                     "filter": {
                         "CodigoCorretor": codigo_corretor  # Usando o código do corretor atual
                     },
@@ -131,10 +131,13 @@ try:
                             data_liberacao = None
                         if not valor_venda:
                             valor_venda = None
+                        # Processa o campo 'TemPlaca'
+                        placa = 1 if imovel.get('TemPlaca') == 'Sim' else 0
+
                         railway_cursor.execute("""
-                            INSERT INTO agenciamentos (codigo_imovel, email_corretor, categoria, bairro, dormitorios, cidade, status, valor, data_cadastro, data_liberacao)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
-                        """, (imovel['Codigo'], corretor[0], imovel['Categoria'], imovel['Bairro'], imovel['Dormitorios'], imovel['Cidade'], imovel['Status'], valor_venda, data_cadastro, data_liberacao))
+                            INSERT INTO agenciamentos (codigo_imovel, email_corretor, categoria, bairro, dormitorios, cidade, status, valor, data_cadastro, data_liberacao, placa)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                        """, (imovel['Codigo'], corretor[0], imovel['Categoria'], imovel['Bairro'], imovel['Dormitorios'], imovel['Cidade'], imovel['Status'], valor_venda, data_cadastro, data_liberacao, placa))
                         logging.info(f'Dados inseridos para o imóvel {imovel["Codigo"]} e corretor {corretor[1]}.')
                     except mysql.connector.Error as err:
                         logging.error(f'Erro ao inserir dados para o imóvel {imovel["Codigo"]}: {err}')
