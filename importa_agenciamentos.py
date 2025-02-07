@@ -31,10 +31,10 @@ try:
 
     # Conexão com o banco 'railway'
     railway_conn = mysql.connector.connect(
-        host='viaduct.proxy.rlwy.net', 
-        port=56119,
+        host='junction.proxy.rlwy.net', 
+        port=12732,
         user='root',
-        password='seuZHHEcCeCAQuOSwjJcXOhtQfzCafbm',
+        password='cCQqQEzFYfdlNivSkJcHbgaFGWLiIVql',
         database='railway'
     )
     logging.info('Conectado ao banco de dados railway com sucesso.')
@@ -170,3 +170,41 @@ finally:
     if railway_conn: railway_conn.close()
     logging.info('Conexões com os bancos de dados fechadas.')
     logging.info('Script de migração finalizado.')
+
+    # Converter o arquivo de log para Base64
+    log_file_path = f"migration_log_{datetime.now().strftime('%Y%m%d')}.log"
+    try:
+        with open(log_file_path, "rb") as log_file:
+            log_base64 = base64.b64encode(log_file.read()).decode('utf-8')
+        
+        # Enviar o log via WhatsApp
+        host = "urbancompany.megaapi.com.br"
+        instance_key = "comunicacao_urban"
+        token = "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyOS8wNy8yMDI0IiwibmFtZSI6IlVyYmFuIENvbXBhbnkifQ.msPAj8cbZ5JJLREax8WTjNcz7i6xLfPBflp8Px64TIHT7ve6OLmLLRzVjW-0EfvGkaH9aqWFh5XyQcwkCHVBHw"
+        url = f"https://{host}/rest/sendMessage/{instance_key}/mediaBase64"
+
+        message_data = {
+            "messageData": {
+                "to": "120363206846386741@g.us",
+                "base64": f"data:text/plain;base64,{log_base64}",
+                "fileName": log_file_path,
+                "type": "document",
+                "caption": "Log de migração",
+                "mimeType": "text/plain"
+            }
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}"
+        }
+
+        response = requests.post(url, json=message_data, headers=headers)
+
+        if response.status_code == 200:
+            logging.info('Arquivo de log enviado com sucesso via WhatsApp.')
+        else:
+            logging.error(f'Falha ao enviar o arquivo de log via WhatsApp. Status: {response.status_code}, Resposta: {response.text}')
+
+    except Exception as e:
+        logging.error(f'Erro ao enviar o arquivo de log via WhatsApp: {e}')
