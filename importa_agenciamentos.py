@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any, Optional, Tuple
 import hashlib
 import time
+from urllib.parse import urlparse
 
 # Configuração do Logger
 log_level = os.getenv('LOG_LEVEL', 'INFO')
@@ -31,19 +32,9 @@ logger = logging.getLogger(__name__)
 
 # Configurações de ambiente
 class Config:
-    # Database Urban (Source)
-    SOURCE_DB_HOST = os.getenv('SOURCE_DB_HOST')
-    SOURCE_DB_USER = os.getenv('SOURCE_DB_USER')
-    SOURCE_DB_PASSWORD = os.getenv('SOURCE_DB_PASSWORD')
-    SOURCE_DB_NAME = os.getenv('SOURCE_DB_NAME')
-    SOURCE_DB_PORT = int(os.getenv('SOURCE_DB_PORT', '3306'))
-
-    # Database Target
-    TARGET_DB_HOST = os.getenv('TARGET_DB_HOST')
-    TARGET_DB_PORT = int(os.getenv('TARGET_DB_PORT', '3306'))
-    TARGET_DB_USER = os.getenv('TARGET_DB_USER')
-    TARGET_DB_PASSWORD = os.getenv('TARGET_DB_PASSWORD')
-    TARGET_DB_NAME = os.getenv('TARGET_DB_NAME')
+    # Database URLs
+    SOURCE_DB_URL = os.getenv('SOURCE_DB_URL')
+    TARGET_DB_URL = os.getenv('TARGET_DB_URL')
 
     # API Configuration
     VISTA_API_HOST = os.getenv('VISTA_API_HOST')
@@ -68,9 +59,7 @@ class Config:
     def validate(cls):
         """Valida se todas as variáveis obrigatórias estão configuradas"""
         required = [
-            'SOURCE_DB_HOST', 'SOURCE_DB_USER', 'SOURCE_DB_PASSWORD', 'SOURCE_DB_NAME',
-            'TARGET_DB_HOST', 'TARGET_DB_USER', 'TARGET_DB_PASSWORD', 'TARGET_DB_NAME',
-            'VISTA_API_HOST', 'VISTA_API_KEY'
+            'SOURCE_DB_URL', 'TARGET_DB_URL', 'VISTA_API_HOST', 'VISTA_API_KEY'
         ]
 
         missing = []
@@ -81,25 +70,35 @@ class Config:
         if missing:
             raise ValueError(f"Variáveis de ambiente obrigatórias não configuradas: {', '.join(missing)}")
 
+    @classmethod
+    def parse_db_url(cls, url: str) -> dict:
+        """Parse uma URL de banco MySQL para parâmetros de conexão"""
+        parsed = urlparse(url)
+        return {
+            'host': parsed.hostname,
+            'port': parsed.port or 3306,
+            'user': parsed.username,
+            'password': parsed.password,
+            'database': parsed.path.lstrip('/')
+        }
+
 # Validar configuração
 Config.validate()
 
+# Parse das URLs de banco
+source_config = Config.parse_db_url(Config.SOURCE_DB_URL)
+target_config = Config.parse_db_url(Config.TARGET_DB_URL)
+
 # Debug das configurações
-logger.info(f"TARGET_DB_HOST: {Config.TARGET_DB_HOST}")
-logger.info(f"TARGET_DB_PORT: {Config.TARGET_DB_PORT}")
-logger.info(f"TARGET_DB_USER: {Config.TARGET_DB_USER}")
-logger.info(f"TARGET_DB_NAME: {Config.TARGET_DB_NAME}")
+logger.info(f"SOURCE_DB: {source_config['host']}:{source_config['port']}/{source_config['database']}")
+logger.info(f"TARGET_DB: {target_config['host']}:{target_config['port']}/{target_config['database']}")
 
 # Pool de conexões para banco de origem
 source_pool = pooling.MySQLConnectionPool(
     pool_name="source_pool",
     pool_size=Config.DB_POOL_SIZE,
     pool_reset_session=True,
-    host=Config.SOURCE_DB_HOST,
-    port=Config.SOURCE_DB_PORT,
-    user=Config.SOURCE_DB_USER,
-    password=Config.SOURCE_DB_PASSWORD,
-    database=Config.SOURCE_DB_NAME
+    **source_config
 )
 
 # Pool de conexões para banco de destino
@@ -107,11 +106,7 @@ target_pool = pooling.MySQLConnectionPool(
     pool_name="target_pool",
     pool_size=Config.DB_POOL_SIZE,
     pool_reset_session=True,
-    host=Config.TARGET_DB_HOST,
-    port=Config.TARGET_DB_PORT,
-    user=Config.TARGET_DB_USER,
-    password=Config.TARGET_DB_PASSWORD,
-    database=Config.TARGET_DB_NAME
+    **target_config
 )
 
 # Session HTTP com retry e connection pooling
@@ -210,7 +205,7 @@ def ensure_table_structure():
             WHERE TABLE_SCHEMA = %s
             AND TABLE_NAME = 'agenciamentos'
             AND COLUMN_NAME = 'data_hash'
-        """, (Config.TARGET_DB_NAME,))
+        """, (target_config['database'],))
 
         if cursor.fetchone()[0] == 0:
             cursor.execute("""
