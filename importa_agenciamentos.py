@@ -325,6 +325,14 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
                     # Verifica se precisa atualizar
                     existing_hash = existing_records.get(record_key)
 
+                    # Debug detalhado para primeiro imóvel de cada corretor
+                    if corretor_total == 0:
+                        logger.info(f"Debug - Corretor {nome_corretor} primeiro imóvel:")
+                        logger.info(f"  Record key: {record_key}")
+                        logger.info(f"  Data hash: {data_hash}")
+                        logger.info(f"  Existing hash: {existing_hash}")
+                        logger.info(f"  Hash match: {existing_hash == data_hash}")
+
                     if existing_hash == data_hash:
                         stats['unchanged'] += 1
                         continue
