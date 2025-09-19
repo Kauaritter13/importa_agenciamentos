@@ -85,6 +85,12 @@ class Config:
         logger.debug(f"Parsed URL {url}: {config}")
         return config
 
+# Debug das variáveis de ambiente ANTES do parse
+logger.info(f"SOURCE_DB_URL RAW: '{Config.SOURCE_DB_URL}'")
+logger.info(f"TARGET_DB_URL RAW: '{Config.TARGET_DB_URL}'")
+logger.info(f"SOURCE_DB_URL len: {len(Config.SOURCE_DB_URL) if Config.SOURCE_DB_URL else 'None'}")
+logger.info(f"TARGET_DB_URL len: {len(Config.TARGET_DB_URL) if Config.TARGET_DB_URL else 'None'}")
+
 # Validar configuração
 Config.validate()
 
@@ -196,7 +202,6 @@ def ensure_table_structure():
                 data_liberacao DATE,
                 placa TINYINT(1),
                 data_hash VARCHAR(32),
-                ultima_atualizacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 UNIQUE KEY uk_imovel_corretor (codigo_imovel, email_corretor),
                 INDEX idx_corretor (email_corretor),
                 INDEX idx_status (status),
@@ -381,8 +386,7 @@ def batch_upsert_records(records: List[tuple]) -> Tuple[int, int]:
                 data_cadastro = VALUES(data_cadastro),
                 data_liberacao = VALUES(data_liberacao),
                 placa = VALUES(placa),
-                data_hash = VALUES(data_hash),
-                ultima_atualizacao = CURRENT_TIMESTAMP
+                data_hash = VALUES(data_hash)
         """
 
         # Executa em lotes menores se necessário
