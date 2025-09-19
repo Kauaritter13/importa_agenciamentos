@@ -589,4 +589,4 @@ def main():
             send_log_to_whatsapp(log_file)
 
 if __name__ == "__main__":
-    main()
+    main() 
