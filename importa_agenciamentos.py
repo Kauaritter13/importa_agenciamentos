@@ -74,13 +74,16 @@ class Config:
     def parse_db_url(cls, url: str) -> dict:
         """Parse uma URL de banco MySQL para parâmetros de conexão"""
         parsed = urlparse(url)
-        return {
+        config = {
             'host': parsed.hostname,
             'port': parsed.port or 3306,
             'user': parsed.username,
             'password': parsed.password,
             'database': parsed.path.lstrip('/')
         }
+        # Debug do parse
+        logger.debug(f"Parsed URL {url}: {config}")
+        return config
 
 # Validar configuração
 Config.validate()
@@ -90,8 +93,10 @@ source_config = Config.parse_db_url(Config.SOURCE_DB_URL)
 target_config = Config.parse_db_url(Config.TARGET_DB_URL)
 
 # Debug das configurações
-logger.info(f"SOURCE_DB: {source_config['host']}:{source_config['port']}/{source_config['database']}")
-logger.info(f"TARGET_DB: {target_config['host']}:{target_config['port']}/{target_config['database']}")
+logger.info(f"SOURCE_DB_URL original: {Config.SOURCE_DB_URL}")
+logger.info(f"TARGET_DB_URL original: {Config.TARGET_DB_URL}")
+logger.info(f"SOURCE_DB parsed: {source_config['host']}:{source_config['port']}/{source_config['database']}")
+logger.info(f"TARGET_DB parsed: {target_config['host']}:{target_config['port']}/{target_config['database']}")
 
 # Pool de conexões para banco de origem
 source_pool = pooling.MySQLConnectionPool(
