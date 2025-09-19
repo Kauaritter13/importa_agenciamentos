@@ -84,6 +84,12 @@ class Config:
 # Validar configuração
 Config.validate()
 
+# Debug das configurações
+logger.info(f"TARGET_DB_HOST: {Config.TARGET_DB_HOST}")
+logger.info(f"TARGET_DB_PORT: {Config.TARGET_DB_PORT}")
+logger.info(f"TARGET_DB_USER: {Config.TARGET_DB_USER}")
+logger.info(f"TARGET_DB_NAME: {Config.TARGET_DB_NAME}")
+
 # Pool de conexões para banco de origem
 source_pool = pooling.MySQLConnectionPool(
     pool_name="source_pool",
