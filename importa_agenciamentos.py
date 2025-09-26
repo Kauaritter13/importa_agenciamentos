@@ -239,12 +239,20 @@ def get_existing_records() -> Dict[str, str]:
 
     try:
         cursor.execute("""
-            SELECT CONCAT(codigo_imovel, '|', email_corretor) as chave, data_hash
+            SELECT CONCAT(TRIM(codigo_imovel), '|', TRIM(email_corretor)) as chave, data_hash
             FROM agenciamentos
             WHERE data_hash IS NOT NULL
         """)
 
-        return {row[0]: row[1] for row in cursor.fetchall()}
+        existing = {row[0]: row[1] for row in cursor.fetchall()}
+        logger.info(f"Carregados {len(existing)} registros existentes com hash")
+
+        # Debug: mostra alguns exemplos de chaves existentes
+        if existing:
+            sample_keys = list(existing.keys())[:5]
+            logger.debug(f"Exemplos de chaves existentes: {sample_keys}")
+
+        return existing
 
     finally:
         cursor.close()
@@ -320,7 +328,11 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
 
                     # Calcula hash para detectar mudanças
                     data_hash = create_imovel_hash(imovel)
-                    record_key = f"{imovel['Codigo']}|{email_corretor}"
+
+                    # Limpa os campos chave para garantir consistência
+                    codigo_imovel_clean = str(imovel['Codigo']).strip()
+                    email_corretor_clean = str(email_corretor).strip()
+                    record_key = f"{codigo_imovel_clean}|{email_corretor_clean}"
 
                     # Verifica se precisa atualizar
                     existing_hash = existing_records.get(record_key)
@@ -328,10 +340,17 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
                     # Debug detalhado para primeiro imóvel de cada corretor
                     if corretor_total == 0:
                         logger.info(f"Debug - Corretor {nome_corretor} primeiro imóvel:")
-                        logger.info(f"  Record key: {record_key}")
-                        logger.info(f"  Data hash: {data_hash}")
-                        logger.info(f"  Existing hash: {existing_hash}")
+                        logger.info(f"  Código Imóvel: '{imovel['Codigo']}'")
+                        logger.info(f"  Email Corretor: '{email_corretor}'")
+                        logger.info(f"  Record key: '{record_key}'")
+                        logger.info(f"  Data hash: '{data_hash}'")
+                        logger.info(f"  Existing hash: '{existing_hash}'")
                         logger.info(f"  Hash match: {existing_hash == data_hash}")
+                        logger.info(f"  Dados hash: {json.dumps({field: imovel.get(field) for field in ['Categoria', 'Bairro', 'Dormitorios', 'Cidade', 'Status', 'ValorVenda', 'DataCadastro', 'DataLiberacao', 'TemPlaca']}, indent=2)}")
+
+                    # Debug adicional: sempre loga quando encontra um registro existente
+                    if existing_hash:
+                        logger.debug(f"Registro existente encontrado: {record_key} - Hash igual: {existing_hash == data_hash}")
 
                     if existing_hash == data_hash:
                         stats['unchanged'] += 1
@@ -339,7 +358,7 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
 
                     # Adiciona à lista de records para batch insert/update
                     all_records.append((
-                        imovel['Codigo'], email_corretor, imovel['Categoria'],
+                        codigo_imovel_clean, email_corretor_clean, imovel['Categoria'],
                         imovel['Bairro'], imovel['Dormitorios'], imovel['Cidade'],
                         imovel['Status'], valor_venda, data_cadastro,
                         data_liberacao, placa, data_hash
@@ -378,6 +397,22 @@ def batch_upsert_records(records: List[tuple]) -> Tuple[int, int]:
     cursor = conn.cursor()
 
     try:
+        # Primeiro, vamos verificar quantos registros já existem
+        existing_check_query = """
+            SELECT COUNT(*) FROM agenciamentos
+            WHERE (codigo_imovel, email_corretor) IN (%s)
+        """
+
+        # Cria placeholders para a consulta
+        record_keys = [(record[0], record[1]) for record in records]
+        placeholders = ','.join(['(%s,%s)'] * len(record_keys))
+        flat_keys = [item for pair in record_keys for item in pair]
+
+        cursor.execute(existing_check_query % placeholders, flat_keys)
+        existing_count = cursor.fetchone()[0]
+
+        logger.info(f"Processando {len(records)} registros, {existing_count} já existem no banco")
+
         # Batch insert com ON DUPLICATE KEY UPDATE
         query = """
             INSERT INTO agenciamentos (
@@ -404,6 +439,13 @@ def batch_upsert_records(records: List[tuple]) -> Tuple[int, int]:
 
         for i in range(0, len(records), batch_size):
             batch = records[i:i+batch_size]
+
+            # Debug: mostra alguns registros do batch
+            if i == 0:  # Apenas no primeiro batch
+                logger.info(f"Exemplo de registros no batch:")
+                for j, record in enumerate(batch[:3]):  # Mostra apenas os 3 primeiros
+                    logger.info(f"  Registro {j+1}: codigo_imovel={record[0]}, email_corretor={record[1]}")
+
             cursor.executemany(query, batch)
 
             # Calcula inserções vs atualizações
@@ -411,14 +453,18 @@ def batch_upsert_records(records: List[tuple]) -> Tuple[int, int]:
             # No MySQL, ON DUPLICATE KEY UPDATE retorna 2 para update e 1 para insert
             # Estimativa: se affected > len(batch), houve updates
             if affected > len(batch):
-                total_updated += affected - len(batch)
-                total_inserted += len(batch) * 2 - affected
+                batch_updated = affected - len(batch)
+                batch_inserted = len(batch) * 2 - affected
+                total_updated += batch_updated
+                total_inserted += batch_inserted
+                logger.debug(f"Batch {i//batch_size + 1}: {batch_inserted} inseridos, {batch_updated} atualizados")
             else:
                 total_inserted += affected
+                logger.debug(f"Batch {i//batch_size + 1}: {affected} inseridos, 0 atualizados")
 
             conn.commit()
-            logger.debug(f"Batch {i//batch_size + 1}: {len(batch)} registros processados")
 
+        logger.info(f"Resultado final: {total_inserted} inseridos, {total_updated} atualizados")
         return total_inserted, total_updated
 
     except Exception as e:
