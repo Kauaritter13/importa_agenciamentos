@@ -170,7 +170,7 @@ def get_cached_or_fetch(session: requests.Session, url: str, headers: dict) -> O
 def create_imovel_hash(imovel: dict) -> str:
     """Cria um hash dos dados do imóvel para detectar mudanças"""
     relevant_fields = ['Categoria', 'Bairro', 'Dormitorios', 'Cidade', 'Status',
-                      'ValorVenda', 'DataCadastro', 'DataLiberacao', 'TemPlaca', 'ExibirNoSite']
+                      'ValorVenda', 'DataCadastro', 'DataLiberacao', 'TemPlaca', 'ExibirNoSite', 'AreaPrivativa']
 
     hash_data = {}
     for field in relevant_fields:
@@ -241,6 +241,21 @@ def ensure_table_structure():
             """)
             logger.info("Coluna exibir_site adicionada à tabela")
 
+        # Adicionar coluna metragem se não existir
+        cursor.execute("""
+            SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = %s
+            AND TABLE_NAME = 'agenciamentos'
+            AND COLUMN_NAME = 'metragem'
+        """, (target_config['database'],))
+
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                ALTER TABLE agenciamentos
+                ADD COLUMN metragem FLOAT
+            """)
+            logger.info("Coluna metragem adicionada à tabela")
+
         conn.commit()
         logger.info("Estrutura da tabela verificada/criada com sucesso")
 
@@ -305,7 +320,7 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
                 'showInternal': '1',
                 'pesquisa': json.dumps({
                     "fields": ["Dormitorios", "Status", "DataLiberacao", "DataCadastro",
-                              "Codigo", "Categoria", "Bairro", "Cidade", "ValorVenda", "TemPlaca", "ExibirNoSite"],
+                              "Codigo", "Categoria", "Bairro", "Cidade", "ValorVenda", "TemPlaca", "ExibirNoSite", "AreaPrivativa"],
                     "filter": {"CodigoCorretor": codigo_corretor},
                     "order": {"DataCadastro": "asc"},
                     "paginacao": {"pagina": pagina_atual, "quantidade": 50}
@@ -343,6 +358,14 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
                     placa = 1 if imovel.get('TemPlaca') == 'Sim' else 0
                     exibir_site = True if imovel.get('ExibirNoSite') == 'Sim' else False
 
+                    # Pega área privativa e converte para float
+                    metragem = None
+                    if imovel.get('AreaPrivativa'):
+                        try:
+                            metragem = float(imovel['AreaPrivativa'])
+                        except (ValueError, TypeError):
+                            metragem = None
+
                     # Calcula hash para detectar mudanças
                     data_hash = create_imovel_hash(imovel)
 
@@ -363,7 +386,7 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
                         logger.info(f"  Data hash: '{data_hash}'")
                         logger.info(f"  Existing hash: '{existing_hash}'")
                         logger.info(f"  Hash match: {existing_hash == data_hash}")
-                        logger.info(f"  Dados hash: {json.dumps({field: imovel.get(field) for field in ['Categoria', 'Bairro', 'Dormitorios', 'Cidade', 'Status', 'ValorVenda', 'DataCadastro', 'DataLiberacao', 'TemPlaca', 'ExibirNoSite']}, indent=2)}")
+                        logger.info(f"  Dados hash: {json.dumps({field: imovel.get(field) for field in ['Categoria', 'Bairro', 'Dormitorios', 'Cidade', 'Status', 'ValorVenda', 'DataCadastro', 'DataLiberacao', 'TemPlaca', 'ExibirNoSite', 'AreaPrivativa']}, indent=2)}")
 
                     # Debug adicional: sempre loga quando encontra um registro existente
                     if existing_hash:
@@ -378,7 +401,7 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
                         codigo_imovel_clean, email_corretor_clean, imovel['Categoria'],
                         imovel['Bairro'], imovel['Dormitorios'], imovel['Cidade'],
                         imovel['Status'], valor_venda, data_cadastro,
-                        data_liberacao, placa, exibir_site, data_hash
+                        data_liberacao, placa, exibir_site, metragem, data_hash
                     ))
 
                     corretor_total += 1
@@ -434,8 +457,8 @@ def batch_upsert_records(records: List[tuple]) -> Tuple[int, int]:
         query = """
             INSERT INTO agenciamentos (
                 codigo_imovel, email_corretor, categoria, bairro, dormitorios,
-                cidade, status, valor, data_cadastro, data_liberacao, placa, exibir_site, data_hash
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                cidade, status, valor, data_cadastro, data_liberacao, placa, exibir_site, metragem, data_hash
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 categoria = VALUES(categoria),
                 bairro = VALUES(bairro),
@@ -447,6 +470,7 @@ def batch_upsert_records(records: List[tuple]) -> Tuple[int, int]:
                 data_liberacao = VALUES(data_liberacao),
                 placa = VALUES(placa),
                 exibir_site = VALUES(exibir_site),
+                metragem = VALUES(metragem),
                 data_hash = VALUES(data_hash)
         """
 
