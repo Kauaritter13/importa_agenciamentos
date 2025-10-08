@@ -170,7 +170,7 @@ def get_cached_or_fetch(session: requests.Session, url: str, headers: dict) -> O
 def create_imovel_hash(imovel: dict) -> str:
     """Cria um hash dos dados do imóvel para detectar mudanças"""
     relevant_fields = ['Categoria', 'Bairro', 'Dormitorios', 'Cidade', 'Status',
-                      'ValorVenda', 'DataCadastro', 'DataLiberacao', 'TemPlaca', 'ExibirNoSite', 'AreaPrivativa']
+                      'ValorVenda', 'DataCadastro', 'DataLiberacao', 'TemPlaca', 'ExibirNoSite', 'AreaPrivativa', 'Latitude', 'Longitude']
 
     hash_data = {}
     for field in relevant_fields:
@@ -256,6 +256,36 @@ def ensure_table_structure():
             """)
             logger.info("Coluna metragem adicionada à tabela")
 
+        # Adicionar coluna latitude se não existir
+        cursor.execute("""
+            SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = %s
+            AND TABLE_NAME = 'agenciamentos'
+            AND COLUMN_NAME = 'latitude'
+        """, (target_config['database'],))
+
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                ALTER TABLE agenciamentos
+                ADD COLUMN latitude FLOAT
+            """)
+            logger.info("Coluna latitude adicionada à tabela")
+
+        # Adicionar coluna longitude se não existir
+        cursor.execute("""
+            SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = %s
+            AND TABLE_NAME = 'agenciamentos'
+            AND COLUMN_NAME = 'longitude'
+        """, (target_config['database'],))
+
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                ALTER TABLE agenciamentos
+                ADD COLUMN longitude FLOAT
+            """)
+            logger.info("Coluna longitude adicionada à tabela")
+
         conn.commit()
         logger.info("Estrutura da tabela verificada/criada com sucesso")
 
@@ -320,7 +350,7 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
                 'showInternal': '1',
                 'pesquisa': json.dumps({
                     "fields": ["Dormitorios", "Status", "DataLiberacao", "DataCadastro",
-                              "Codigo", "Categoria", "Bairro", "Cidade", "ValorVenda", "TemPlaca", "ExibirNoSite", "AreaPrivativa"],
+                              "Codigo", "Categoria", "Bairro", "Cidade", "ValorVenda", "TemPlaca", "ExibirNoSite", "AreaPrivativa", "Latitude", "Longitude"],
                     "filter": {"CodigoCorretor": codigo_corretor},
                     "order": {"DataCadastro": "asc"},
                     "paginacao": {"pagina": pagina_atual, "quantidade": 50}
@@ -366,6 +396,21 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
                         except (ValueError, TypeError):
                             metragem = None
 
+                    # Pega latitude e longitude e converte para float
+                    latitude = None
+                    if imovel.get('Latitude'):
+                        try:
+                            latitude = float(imovel['Latitude'])
+                        except (ValueError, TypeError):
+                            latitude = None
+
+                    longitude = None
+                    if imovel.get('Longitude'):
+                        try:
+                            longitude = float(imovel['Longitude'])
+                        except (ValueError, TypeError):
+                            longitude = None
+
                     # Calcula hash para detectar mudanças
                     data_hash = create_imovel_hash(imovel)
 
@@ -386,7 +431,7 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
                         logger.info(f"  Data hash: '{data_hash}'")
                         logger.info(f"  Existing hash: '{existing_hash}'")
                         logger.info(f"  Hash match: {existing_hash == data_hash}")
-                        logger.info(f"  Dados hash: {json.dumps({field: imovel.get(field) for field in ['Categoria', 'Bairro', 'Dormitorios', 'Cidade', 'Status', 'ValorVenda', 'DataCadastro', 'DataLiberacao', 'TemPlaca', 'ExibirNoSite', 'AreaPrivativa']}, indent=2)}")
+                        logger.info(f"  Dados hash: {json.dumps({field: imovel.get(field) for field in ['Categoria', 'Bairro', 'Dormitorios', 'Cidade', 'Status', 'ValorVenda', 'DataCadastro', 'DataLiberacao', 'TemPlaca', 'ExibirNoSite', 'AreaPrivativa', 'Latitude', 'Longitude']}, indent=2)}")
 
                     # Debug adicional: sempre loga quando encontra um registro existente
                     if existing_hash:
@@ -401,7 +446,7 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
                         codigo_imovel_clean, email_corretor_clean, imovel['Categoria'],
                         imovel['Bairro'], imovel['Dormitorios'], imovel['Cidade'],
                         imovel['Status'], valor_venda, data_cadastro,
-                        data_liberacao, placa, exibir_site, metragem, data_hash
+                        data_liberacao, placa, exibir_site, metragem, latitude, longitude, data_hash
                     ))
 
                     corretor_total += 1
@@ -457,8 +502,8 @@ def batch_upsert_records(records: List[tuple]) -> Tuple[int, int]:
         query = """
             INSERT INTO agenciamentos (
                 codigo_imovel, email_corretor, categoria, bairro, dormitorios,
-                cidade, status, valor, data_cadastro, data_liberacao, placa, exibir_site, metragem, data_hash
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                cidade, status, valor, data_cadastro, data_liberacao, placa, exibir_site, metragem, latitude, longitude, data_hash
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 categoria = VALUES(categoria),
                 bairro = VALUES(bairro),
@@ -471,6 +516,8 @@ def batch_upsert_records(records: List[tuple]) -> Tuple[int, int]:
                 placa = VALUES(placa),
                 exibir_site = VALUES(exibir_site),
                 metragem = VALUES(metragem),
+                latitude = VALUES(latitude),
+                longitude = VALUES(longitude),
                 data_hash = VALUES(data_hash)
         """
 
