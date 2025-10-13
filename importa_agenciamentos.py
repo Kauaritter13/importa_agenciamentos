@@ -15,7 +15,7 @@ import time
 from urllib.parse import urlparse
 
 # Configuração do Logger
-log_level = os.getenv('LOG_LEVEL', 'INFO')
+log_level = os.getenv('LOG_LEVEL', 'WARNING')  # Mudado de INFO para WARNING
 log_to_file = os.getenv('LOG_TO_FILE', 'true').lower() == 'true'
 
 handlers = [logging.StreamHandler()]
@@ -85,24 +85,12 @@ class Config:
         logger.debug(f"Parsed URL {url}: {config}")
         return config
 
-# Debug das variáveis de ambiente ANTES do parse
-logger.info(f"SOURCE_DB_URL RAW: '{Config.SOURCE_DB_URL}'")
-logger.info(f"TARGET_DB_URL RAW: '{Config.TARGET_DB_URL}'")
-logger.info(f"SOURCE_DB_URL len: {len(Config.SOURCE_DB_URL) if Config.SOURCE_DB_URL else 'None'}")
-logger.info(f"TARGET_DB_URL len: {len(Config.TARGET_DB_URL) if Config.TARGET_DB_URL else 'None'}")
-
 # Validar configuração
 Config.validate()
 
 # Parse das URLs de banco
 source_config = Config.parse_db_url(Config.SOURCE_DB_URL)
 target_config = Config.parse_db_url(Config.TARGET_DB_URL)
-
-# Debug das configurações
-logger.info(f"SOURCE_DB_URL original: {Config.SOURCE_DB_URL}")
-logger.info(f"TARGET_DB_URL original: {Config.TARGET_DB_URL}")
-logger.info(f"SOURCE_DB parsed: {source_config['host']}:{source_config['port']}/{source_config['database']}")
-logger.info(f"TARGET_DB parsed: {target_config['host']}:{target_config['port']}/{target_config['database']}")
 
 # Pool de conexões para banco de origem
 source_pool = pooling.MySQLConnectionPool(
@@ -151,7 +139,6 @@ def get_cached_or_fetch(session: requests.Session, url: str, headers: dict) -> O
     if cache_key in request_cache:
         data, timestamp = request_cache[cache_key]
         if time.time() - timestamp < Config.CACHE_TTL:
-            logger.debug(f"Cache hit para URL: {url[:50]}...")
             return data
 
     try:
@@ -224,7 +211,7 @@ def ensure_table_structure():
                 ADD COLUMN data_hash VARCHAR(32),
                 ADD INDEX idx_hash (data_hash)
             """)
-            logger.info("Coluna data_hash adicionada à tabela")
+            logger.warning("Coluna data_hash adicionada à tabela")
 
         # Adicionar coluna exibir_site se não existir
         cursor.execute("""
@@ -239,7 +226,7 @@ def ensure_table_structure():
                 ALTER TABLE agenciamentos
                 ADD COLUMN exibir_site BOOLEAN
             """)
-            logger.info("Coluna exibir_site adicionada à tabela")
+            logger.warning("Coluna exibir_site adicionada à tabela")
 
         # Adicionar coluna metragem se não existir
         cursor.execute("""
@@ -254,7 +241,7 @@ def ensure_table_structure():
                 ALTER TABLE agenciamentos
                 ADD COLUMN metragem FLOAT
             """)
-            logger.info("Coluna metragem adicionada à tabela")
+            logger.warning("Coluna metragem adicionada à tabela")
 
         # Adicionar coluna latitude se não existir
         cursor.execute("""
@@ -269,7 +256,7 @@ def ensure_table_structure():
                 ALTER TABLE agenciamentos
                 ADD COLUMN latitude FLOAT
             """)
-            logger.info("Coluna latitude adicionada à tabela")
+            logger.warning("Coluna latitude adicionada à tabela")
 
         # Adicionar coluna longitude se não existir
         cursor.execute("""
@@ -284,10 +271,9 @@ def ensure_table_structure():
                 ALTER TABLE agenciamentos
                 ADD COLUMN longitude FLOAT
             """)
-            logger.info("Coluna longitude adicionada à tabela")
+            logger.warning("Coluna longitude adicionada à tabela")
 
         conn.commit()
-        logger.info("Estrutura da tabela verificada/criada com sucesso")
 
     finally:
         cursor.close()
@@ -306,13 +292,6 @@ def get_existing_records() -> Dict[str, str]:
         """)
 
         existing = {row[0]: row[1] for row in cursor.fetchall()}
-        logger.info(f"Carregados {len(existing)} registros existentes com hash")
-
-        # Debug: mostra alguns exemplos de chaves existentes
-        if existing:
-            sample_keys = list(existing.keys())[:5]
-            logger.debug(f"Exemplos de chaves existentes: {sample_keys}")
-
         return existing
 
     finally:
@@ -335,8 +314,6 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
         email_corretor = corretor[0]
         nome_corretor = corretor[1]
         codigo_corretor = corretor[2]
-
-        logger.info(f"Processando corretor {nome_corretor} (Código: {codigo_corretor})")
 
         pagina_atual = 1
         corretor_total = 0
@@ -365,8 +342,6 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
             imoveis_response = get_cached_or_fetch(session, full_url, headers)
 
             if not imoveis_response or 'total' not in imoveis_response or not imoveis_response['total']:
-                if pagina_atual == 1:
-                    logger.info(f"Nenhum imóvel para corretor {nome_corretor}")
                 break
 
             # Processa imóveis
@@ -422,21 +397,6 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
                     # Verifica se precisa atualizar
                     existing_hash = existing_records.get(record_key)
 
-                    # Debug detalhado para primeiro imóvel de cada corretor
-                    if corretor_total == 0:
-                        logger.info(f"Debug - Corretor {nome_corretor} primeiro imóvel:")
-                        logger.info(f"  Código Imóvel: '{imovel['Codigo']}'")
-                        logger.info(f"  Email Corretor: '{email_corretor}'")
-                        logger.info(f"  Record key: '{record_key}'")
-                        logger.info(f"  Data hash: '{data_hash}'")
-                        logger.info(f"  Existing hash: '{existing_hash}'")
-                        logger.info(f"  Hash match: {existing_hash == data_hash}")
-                        logger.info(f"  Dados hash: {json.dumps({field: imovel.get(field) for field in ['Categoria', 'Bairro', 'Dormitorios', 'Cidade', 'Status', 'ValorVenda', 'DataCadastro', 'DataLiberacao', 'TemPlaca', 'ExibirNoSite', 'AreaPrivativa', 'Latitude', 'Longitude']}, indent=2)}")
-
-                    # Debug adicional: sempre loga quando encontra um registro existente
-                    if existing_hash:
-                        logger.debug(f"Registro existente encontrado: {record_key} - Hash igual: {existing_hash == data_hash}")
-
                     if existing_hash == data_hash:
                         stats['unchanged'] += 1
                         continue
@@ -462,7 +422,6 @@ def process_corretor_batch(corretores_batch: List[tuple], session: requests.Sess
 
             pagina_atual += 1
 
-        logger.info(f"Corretor {nome_corretor}: {corretor_total} imóveis para processar")
         stats['total_imoveis'] += corretor_total
 
     # Batch upsert
@@ -492,11 +451,6 @@ def batch_upsert_records(records: List[tuple]) -> Tuple[int, int]:
         record_keys = [(record[0], record[1]) for record in records]
         placeholders = ','.join(['(%s,%s)'] * len(record_keys))
         flat_keys = [item for pair in record_keys for item in pair]
-
-        cursor.execute(existing_check_query % placeholders, flat_keys)
-        existing_count = cursor.fetchone()[0]
-
-        logger.info(f"Processando {len(records)} registros, {existing_count} já existem no banco")
 
         # Batch insert com ON DUPLICATE KEY UPDATE
         query = """
@@ -529,12 +483,6 @@ def batch_upsert_records(records: List[tuple]) -> Tuple[int, int]:
         for i in range(0, len(records), batch_size):
             batch = records[i:i+batch_size]
 
-            # Debug: mostra alguns registros do batch
-            if i == 0:  # Apenas no primeiro batch
-                logger.info(f"Exemplo de registros no batch:")
-                for j, record in enumerate(batch[:3]):  # Mostra apenas os 3 primeiros
-                    logger.info(f"  Registro {j+1}: codigo_imovel={record[0]}, email_corretor={record[1]}")
-
             cursor.executemany(query, batch)
 
             # Calcula inserções vs atualizações
@@ -546,14 +494,11 @@ def batch_upsert_records(records: List[tuple]) -> Tuple[int, int]:
                 batch_inserted = len(batch) * 2 - affected
                 total_updated += batch_updated
                 total_inserted += batch_inserted
-                logger.debug(f"Batch {i//batch_size + 1}: {batch_inserted} inseridos, {batch_updated} atualizados")
             else:
                 total_inserted += affected
-                logger.debug(f"Batch {i//batch_size + 1}: {affected} inseridos, 0 atualizados")
 
             conn.commit()
 
-        logger.info(f"Resultado final: {total_inserted} inseridos, {total_updated} atualizados")
         return total_inserted, total_updated
 
     except Exception as e:
@@ -589,7 +534,7 @@ def clean_old_records():
 
             deleted = cursor_target.rowcount
             if deleted > 0:
-                logger.info(f"Removidos {deleted} registros de corretores inativos")
+                logger.warning(f"Removidos {deleted} registros de corretores inativos")
                 conn_target.commit()
 
         cursor_source.close()
@@ -633,9 +578,7 @@ def send_log_to_whatsapp(log_file_path: str):
 
         response = requests.post(url, json=message_data, headers=headers, timeout=30)
 
-        if response.status_code == 200:
-            logger.info('Log enviado com sucesso via WhatsApp')
-        else:
+        if response.status_code != 200:
             logger.error(f'Falha ao enviar log via WhatsApp: {response.status_code}')
 
     except Exception as e:
@@ -645,19 +588,19 @@ def main():
     """Função principal otimizada"""
     start_time = time.time()
 
-    logger.info('='*50)
-    logger.info('Iniciando migração otimizada de dados')
-    logger.info(f'Configuração: {Config.MAX_WORKERS} workers, batch size {Config.BATCH_SIZE}')
-    logger.info('='*50)
+    print('='*50)
+    print('Iniciando migração otimizada de dados')
+    print(f'Configuração: {Config.MAX_WORKERS} workers, batch size {Config.BATCH_SIZE}')
+    print('='*50)
 
     try:
         # Garante estrutura da tabela
         ensure_table_structure()
 
         # Obtém registros existentes
-        logger.info("Carregando registros existentes para comparação...")
+        print("Carregando registros existentes...")
         existing_records = get_existing_records()
-        logger.info(f"Encontrados {len(existing_records)} registros existentes")
+        print(f"Encontrados {len(existing_records)} registros existentes")
 
         # Busca corretores ativos
         conn_source = source_pool.get_connection()
@@ -674,7 +617,7 @@ def main():
         cursor_source.close()
         conn_source.close()
 
-        logger.info(f"Encontrados {len(all_corretores)} corretores ativos")
+        print(f"Encontrados {len(all_corretores)} corretores ativos")
 
         # Processa em paralelo
         total_stats = {
@@ -707,28 +650,23 @@ def main():
                     for key in total_stats:
                         total_stats[key] += stats.get(key, 0)
 
-                    # Log de progresso
-                    logger.info(f"Batch completado: {stats['inserted']} inseridos, "
-                              f"{stats['updated']} atualizados, {stats['unchanged']} inalterados")
-
                 except Exception as e:
                     logger.error(f"Erro no batch: {e}")
 
         # Limpa registros antigos
-        logger.info("Removendo registros de corretores inativos...")
         clean_old_records()
 
         # Estatísticas finais
         elapsed_time = time.time() - start_time
-        logger.info('='*50)
-        logger.info(f"Migração concluída em {elapsed_time:.2f} segundos ({elapsed_time/60:.2f} minutos)")
-        logger.info(f"Total de imóveis processados: {total_stats['total_imoveis']}")
-        logger.info(f"Registros inseridos: {total_stats['inserted']}")
-        logger.info(f"Registros atualizados: {total_stats['updated']}")
-        logger.info(f"Registros inalterados: {total_stats['unchanged']}")
-        logger.info(f"Erros: {total_stats['errors']}")
-        logger.info(f"Performance: {total_stats['total_imoveis']/elapsed_time:.2f} imóveis/segundo")
-        logger.info('='*50)
+        print('='*50)
+        print(f"Migração concluída em {elapsed_time:.2f} segundos ({elapsed_time/60:.2f} minutos)")
+        print(f"Total de imóveis processados: {total_stats['total_imoveis']}")
+        print(f"Registros inseridos: {total_stats['inserted']}")
+        print(f"Registros atualizados: {total_stats['updated']}")
+        print(f"Registros inalterados: {total_stats['unchanged']}")
+        print(f"Erros: {total_stats['errors']}")
+        print(f"Performance: {total_stats['total_imoveis']/elapsed_time:.2f} imóveis/segundo")
+        print('='*50)
 
     except Exception as e:
         logger.critical(f'Erro crítico na execução: {e}', exc_info=True)
