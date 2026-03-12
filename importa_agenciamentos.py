@@ -279,6 +279,23 @@ def ensure_table_structure():
         cursor.close()
         conn.close()
 
+def truncate_table():
+    """Trunca a tabela agenciamentos para reiniciar a importação"""
+    conn = target_pool.get_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("TRUNCATE TABLE agenciamentos")
+        conn.commit()
+        logger.warning("Tabela agenciamentos truncada com sucesso")
+    except Exception as e:
+        logger.error(f"Erro ao truncar tabela agenciamentos: {e}")
+        conn.rollback()
+        raise
+    finally:
+        cursor.close()
+        conn.close()
+
 def get_existing_records() -> Dict[str, str]:
     """Obtém hash dos registros existentes para comparação"""
     conn = target_pool.get_connection()
@@ -596,6 +613,10 @@ def main():
     try:
         # Garante estrutura da tabela
         ensure_table_structure()
+
+        # Truncar a tabela antes da importação
+        print("Truncando a tabela agenciamentos...")
+        truncate_table()
 
         # Obtém registros existentes
         print("Carregando registros existentes...")
