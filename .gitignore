@@ -1,0 +1,27 @@
+# Secrets
+.env
+.env.local
+*.env.bak
+
+# Logs
+*.log
+migration_log_*
+vista_to_s3_*
+
+# Cache do orquestrador
+.chunks/
+.tmp/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.pytest_cache/
+
+# Outputs locais (sao regenerados)
+vista_schema.json
+vista_validated.json
+imovel_*_completo.json

@@ -1,1 +1,1 @@
-worker: python importa_agenciamentos.py
+worker: python -u _entrypoint.py
